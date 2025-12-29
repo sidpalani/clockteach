@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Clock Learning Time!</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    body { margin: 0; font-family: system-ui, -apple-system, sans-serif; }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel">
+    const { useState, useRef, useCallback } = React;
+
+    function ClockLearningApp() {
+      const [hours, setHours] = useState(10);
+      const [minutes, setMinutes] = useState(10);
+      const [showHints, setShowHints] = useState(true);
+      const [mode, setMode] = useState('learn');
+      const [quizAnswer, setQuizAnswer] = useState('');
+      const [feedback, setFeedback] = useState('');
+      const [quizTime, setQuizTime] = useState(null);
+      const [dragging, setDragging] = useState(null);
+      const svgRef = useRef(null);
+
+      const minuteAngle = minutes * 6;
+      const hourAngle = (hours % 12) * 30 + minutes * 0.5;
+
+      const formatDigitalTime = (h, m) => {
+        const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
+        const period = h >= 12 ? 'PM' : 'AM';
+        return `${displayHour}:${m.toString().padStart(2, '0')} ${period}`;
+      };
+
+      const getAngleFromEvent = useCallback((e) => {
+        if (!svgRef.current) return 0;
+        const svg = svgRef.current;
+        const rect = svg.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const dx = clientX - centerX;
+        const dy = clientY - centerY;
+        let angle = Math.atan2(dx, -dy) * (180 / Math.PI);
+        if (angle < 0) angle += 360;
+        return angle;
+      }, []);
+
+      const getClosestHand = useCallback((e) => {
+        const angle = getAngleFromEvent(e);
+        const normalizedMinuteAngle = minuteAngle % 360;
+        const normalizedHourAngle = hourAngle % 360;
+        const minuteDiff = Math.min(
+          Math.abs(angle - normalizedMinuteAngle),
+          360 - Math.abs(angle - normalizedMinuteAngle)
+        );
+        const hourDiff = Math.min(
+          Math.abs(angle - normalizedHourAngle),
+          360 - Math.abs(angle - normalizedHourAngle)
+        );
+        if (!svgRef.current) return null;
+        const svg = svgRef.current;
+        const rect = svg.getBoundingClientRect();
+        const centerX = rect.left + rect.width / 2;
+        const centerY = rect.top + rect.height / 2;
+        const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+        const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+        const distance = Math.sqrt(Math.pow(clientX - centerX, 2) + Math.pow(clientY - centerY, 2));
+        const radius = rect.width / 2;
+        if (distance < radius * 0.15 || distance > radius * 0.95) return null;
+        if (minuteDiff < 30 || hourDiff < 30) {
+          return minuteDiff < hourDiff ? 'minute' : 'hour';
+        }
+        return 'minute';
+      }, [minuteAngle, hourAngle, getAngleFromEvent]);
+
+      const handleDragStart = useCallback((e) => {
+        if (mode === 'quiz') return;
+        e.preventDefault();
+        const hand = getClosestHand(e);
+        if (hand) setDragging(hand);
+      }, [mode, getClosestHand]);
+
+      const handleDragMove = useCallback((e) => {
+        if (!dragging || mode === 'quiz') return;
+        e.preventDefault();
+        const angle = getAngleFromEvent(e);
+        if (dragging === 'minute') {
+          let newMinutes = Math.round(angle / 6) % 60;
+          const oldQuadrant = Math.floor(minutes / 15);
+          const newQuadrant = Math.floor(newMinutes / 15);
+          if (oldQuadrant === 3 && newQuadrant === 0) {
+            setHours((h) => (h + 1) % 24);
+          } else if (oldQuadrant === 0 && newQuadrant === 3) {
+            setHours((h) => (h === 0 ? 23 : h - 1));
+          }
+          setMinutes(newMinutes);
+        } else if (dragging === 'hour') {
+          let newHour = Math.round(angle / 30) % 12;
+          if (newHour === 0) newHour = 12;
+          const isPM = hours >= 12;
+          if (isPM && newHour !== 12) {
+            setHours(newHour + 12);
+          } else if (!isPM && newHour === 12) {
+            setHours(0);
+          } else {
+            setHours(newHour);
+          }
+        }
+      }, [dragging, mode, getAngleFromEvent, minutes, hours]);
+
+      const handleDragEnd = useCallback(() => setDragging(null), []);
+
+      const adjustMinutes = (delta) => {
+        let newMinutes = minutes + delta;
+        let newHours = hours;
+        if (newMinutes >= 60) { newMinutes = 0; newHours = (hours + 1) % 24; }
+        else if (newMinutes < 0) { newMinutes = 55; newHours = hours === 0 ? 23 : hours - 1; }
+        setMinutes(newMinutes);
+        setHours(newHours);
+      };
+
+      const adjustHours = (delta) => {
+        let newHours = hours + delta;
+        if (newHours >= 24) newHours = 0;
+        if (newHours < 0) newHours = 23;
+        setHours(newHours);
+      };
+
+      const generateQuizTime = () => {
+        const randomHour = Math.floor(Math.random() * 12) + 1;
+        const randomMinute = Math.floor(Math.random() * 12) * 5;
+        setQuizTime({ hours: randomHour, minutes: randomMinute });
+        setHours(randomHour);
+        setMinutes(randomMinute);
+        setQuizAnswer('');
+        setFeedback('');
+      };
+
+      const checkAnswer = () => {
+        if (!quizTime) return;
+        const correctAnswer = formatDigitalTime(quizTime.hours, quizTime.minutes);
+        const userHour = parseInt(quizAnswer.split(':')[0]);
+        const userMinute = parseInt(quizAnswer.split(':')[1]);
+        if (userHour === (quizTime.hours > 12 ? quizTime.hours - 12 : quizTime.hours) && userMinute === quizTime.minutes) {
+          setFeedback('🎉 Correct! Great job!');
+        } else {
+          setFeedback(`Not quite! The time is ${correctAnswer}. Try another one!`);
+        }
+      };
+
+      const clockNumbers = [];
+      for (let i = 1; i <= 12; i++) {
+        const angle = (i * 30 - 90) * (Math.PI / 180);
+        const x = 50 + 35 * Math.cos(angle);
+        const y = 50 + 35 * Math.sin(angle);
+        clockNumbers.push(
+          <text key={i} x={x} y={y} textAnchor="middle" dominantBaseline="middle"
+            style={{ fontSize: '8px', fontWeight: 'bold', fill: '#334155', pointerEvents: 'none', userSelect: 'none' }}>
+            {i}
+          </text>
+        );
+      }
+
+      const minuteMarkers = [];
+      for (let i = 0; i < 60; i++) {
+        const angle = (i * 6 - 90) * (Math.PI / 180);
+        const isHourMark = i % 5 === 0;
+        const innerR = isHourMark ? 42 : 44;
+        const outerR = 46;
+        minuteMarkers.push(
+          <line key={i}
+            x1={50 + innerR * Math.cos(angle)} y1={50 + innerR * Math.sin(angle)}
+            x2={50 + outerR * Math.cos(angle)} y2={50 + outerR * Math.sin(angle)}
+            stroke={isHourMark ? '#334155' : '#94a3b8'}
+            strokeWidth={isHourMark ? 1.5 : 0.5}
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      }
+
+      return (
+        <div className="min-h-screen bg-gradient-to-b from-sky-100 to-indigo-100 p-4">
+          <div className="max-w-md mx-auto">
+            <h1 className="text-2xl font-bold text-center text-indigo-800 mb-2">⏰ Clock Learning Time!</h1>
+            
+            <div className="flex justify-center gap-2 mb-4">
+              <button onClick={() => setMode('learn')}
+                className={`px-4 py-2 rounded-full font-semibold transition-all ${mode === 'learn' ? 'bg-indigo-500 text-white shadow-lg' : 'bg-white text-indigo-500 border-2 border-indigo-300'}`}>
+                📚 Learn
+              </button>
+              <button onClick={() => { setMode('quiz'); generateQuizTime(); }}
+                className={`px-4 py-2 rounded-full font-semibold transition-all ${mode === 'quiz' ? 'bg-green-500 text-white shadow-lg' : 'bg-white text-green-500 border-2 border-green-300'}`}>
+                🎯 Quiz Me!
+              </button>
+            </div>
+
+            <div className="bg-white rounded-3xl shadow-xl p-4 mb-4">
+              <svg ref={svgRef} viewBox="0 0 100 100"
+                className={`w-full max-w-xs mx-auto ${mode === 'learn' ? 'cursor-grab active:cursor-grabbing' : ''}`}
+                onMouseDown={handleDragStart} onMouseMove={handleDragMove}
+                onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd}
+                onTouchStart={handleDragStart} onTouchMove={handleDragMove} onTouchEnd={handleDragEnd}
+                style={{ touchAction: 'none' }}>
+                <circle cx="50" cy="50" r="48" fill="white" stroke="#e2e8f0" strokeWidth="2" />
+                <circle cx="50" cy="50" r="46" fill="white" stroke="#cbd5e1" strokeWidth="1" />
+                {minuteMarkers}
+                {clockNumbers}
+                <line x1="50" y1="50"
+                  x2={50 + 22 * Math.sin(hourAngle * Math.PI / 180)}
+                  y2={50 - 22 * Math.cos(hourAngle * Math.PI / 180)}
+                  stroke="transparent" strokeWidth="8" strokeLinecap="round" style={{ pointerEvents: 'stroke' }} />
+                <line x1="50" y1="50"
+                  x2={50 + 22 * Math.sin(hourAngle * Math.PI / 180)}
+                  y2={50 - 22 * Math.cos(hourAngle * Math.PI / 180)}
+                  stroke={dragging === 'hour' ? '#6366f1' : '#4f46e5'}
+                  strokeWidth="4" strokeLinecap="round" style={{ pointerEvents: 'none' }} />
+                <line x1="50" y1="50"
+                  x2={50 + 32 * Math.sin(minuteAngle * Math.PI / 180)}
+                  y2={50 - 32 * Math.cos(minuteAngle * Math.PI / 180)}
+                  stroke="transparent" strokeWidth="8" strokeLinecap="round" style={{ pointerEvents: 'stroke' }} />
+                <line x1="50" y1="50"
+                  x2={50 + 32 * Math.sin(minuteAngle * Math.PI / 180)}
+                  y2={50 - 32 * Math.cos(minuteAngle * Math.PI / 180)}
+                  stroke={dragging === 'minute' ? '#22d3ee' : '#06b6d4'}
+                  strokeWidth="2.5" strokeLinecap="round" style={{ pointerEvents: 'none' }} />
+                <circle cx="50" cy="50" r="3" fill="#1e1b4b" style={{ pointerEvents: 'none' }} />
+              </svg>
+              {mode === 'learn' && <p className="text-center text-sm text-slate-500 mt-2">👆 Drag the hands to change the time!</p>}
+              <div className="flex justify-center gap-6 mt-3">
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-1.5 bg-indigo-600 rounded"></div>
+                  <span className="text-sm font-medium text-slate-600">Hour (short)</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <div className="w-8 h-1 bg-cyan-500 rounded"></div>
+                  <span className="text-sm font-medium text-slate-600">Minute (long)</span>
+                </div>
+              </div>
+            </div>
+
+            <div className="bg-slate-800 rounded-2xl p-4 mb-4 shadow-lg">
+              <div className="text-center">
+                <span className="text-4xl font-mono font-bold text-green-400">
+                  {mode === 'quiz' ? '??:??' : formatDigitalTime(hours, minutes)}
+                </span>
+              </div>
+            </div>
+
+            {mode === 'learn' && (
+              <div className="bg-white rounded-2xl p-4 shadow-lg mb-4">
+                <h3 className="text-center font-semibold text-slate-700 mb-3">Or Use Buttons</h3>
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-indigo-600 font-semibold w-20">Hour:</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => adjustHours(-1)} className="w-12 h-12 bg-indigo-100 hover:bg-indigo-200 active:bg-indigo-300 rounded-xl text-2xl font-bold text-indigo-600 transition-colors">−</button>
+                    <div className="w-12 h-12 bg-indigo-50 rounded-xl flex items-center justify-center text-xl font-bold text-indigo-700">{hours % 12 === 0 ? 12 : hours % 12}</div>
+                    <button onClick={() => adjustHours(1)} className="w-12 h-12 bg-indigo-100 hover:bg-indigo-200 active:bg-indigo-300 rounded-xl text-2xl font-bold text-indigo-600 transition-colors">+</button>
+                  </div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-cyan-600 font-semibold w-20">Minute:</span>
+                  <div className="flex gap-2">
+                    <button onClick={() => adjustMinutes(-5)} className="w-12 h-12 bg-cyan-100 hover:bg-cyan-200 active:bg-cyan-300 rounded-xl text-2xl font-bold text-cyan-600 transition-colors">−</button>
+                    <div className="w-12 h-12 bg-cyan-50 rounded-xl flex items-center justify-center text-xl font-bold text-cyan-700">{minutes.toString().padStart(2, '0')}</div>
+                    <button onClick={() => adjustMinutes(5)} className="w-12 h-12 bg-cyan-100 hover:bg-cyan-200 active:bg-cyan-300 rounded-xl text-2xl font-bold text-cyan-600 transition-colors">+</button>
+                  </div>
+                </div>
+                <div className="mt-4 pt-3 border-t border-slate-200">
+                  <p className="text-sm text-slate-500 mb-2 text-center">Quick times:</p>
+                  <div className="flex flex-wrap justify-center gap-2">
+                    {[{ h: 3, m: 0, label: "3:00" }, { h: 6, m: 30, label: "6:30" }, { h: 9, m: 15, label: "9:15" }, { h: 12, m: 45, label: "12:45" }].map((preset) => (
+                      <button key={preset.label} onClick={() => { setHours(preset.h); setMinutes(preset.m); }}
+                        className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 active:bg-slate-300 rounded-lg text-sm font-medium text-slate-600 transition-colors">
+                        {preset.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {mode === 'quiz' && (
+              <div className="bg-white rounded-2xl p-4 shadow-lg mb-4">
+                <h3 className="text-center font-semibold text-slate-700 mb-3">What time does the clock show?</h3>
+                <div className="flex gap-2 mb-3">
+                  <input type="text" placeholder="Type answer (e.g., 3:30)" value={quizAnswer}
+                    onChange={(e) => setQuizAnswer(e.target.value)}
+                    className="flex-1 px-4 py-3 border-2 border-slate-200 rounded-xl text-lg text-center focus:border-green-400 focus:outline-none" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={checkAnswer} className="flex-1 py-3 bg-green-500 hover:bg-green-600 active:bg-green-700 text-white rounded-xl font-semibold transition-colors">Check Answer</button>
+                  <button onClick={generateQuizTime} className="px-4 py-3 bg-slate-200 hover:bg-slate-300 active:bg-slate-400 rounded-xl font-semibold transition-colors">New Time</button>
+                </div>
+                {feedback && (
+                  <div className={`mt-3 p-3 rounded-xl text-center font-medium ${feedback.includes('Correct') ? 'bg-green-100 text-green-700' : 'bg-amber-100 text-amber-700'}`}>
+                    {feedback}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="bg-amber-50 rounded-2xl p-4 border-2 border-amber-200">
+              <button onClick={() => setShowHints(!showHints)} className="w-full flex items-center justify-between font-semibold text-amber-800">
+                <span>💡 Learning Tips</span>
+                <span>{showHints ? '▲' : '▼'}</span>
+              </button>
+              {showHints && (
+                <div className="mt-3 space-y-3 text-sm text-amber-900">
+                  <div className="flex gap-2"><span className="text-lg">👆</span><p>The <strong className="text-indigo-600">short hand</strong> points to the <strong>hour</strong>. It moves slowly!</p></div>
+                  <div className="flex gap-2"><span className="text-lg">✌️</span><p>The <strong className="text-cyan-600">long hand</strong> points to the <strong>minutes</strong>. It goes all the way around in one hour!</p></div>
+                  <div className="flex gap-2"><span className="text-lg">🔢</span><p>For minutes: each number means <strong>5 minutes</strong>. So 3 = 15 minutes, 6 = 30 minutes!</p></div>
+                  <div className="flex gap-2"><span className="text-lg">⭐</span><p>When the long hand points to <strong>12</strong>, it's exactly on the hour (like 3:00)!</p></div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.createRoot(document.getElementById('root')).render(<ClockLearningApp />);
+  </script>
+</body>
+</html>
