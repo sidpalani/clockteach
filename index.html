@@ -33,8 +33,7 @@
 
       const formatDigitalTime = (h, m) => {
         const displayHour = h === 0 ? 12 : h > 12 ? h - 12 : h;
-        const period = h >= 12 ? 'PM' : 'AM';
-        return `${displayHour}:${m.toString().padStart(2, '0')} ${period}`;
+        return `${displayHour}:${m.toString().padStart(2, '0')}`;
       };
 
       const getAngleFromEvent = useCallback((e) => {
